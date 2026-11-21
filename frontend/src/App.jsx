@@ -89,11 +89,13 @@ function App() {
   }, []);
 
   useEffect(() => {
-    loadData();
-
+    const initialLoad = setTimeout(loadData, 0);
     const interval = setInterval(loadData, 5000);
 
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(initialLoad);
+      clearInterval(interval);
+    };
   }, [loadData]);
 
   const metrics = system
@@ -227,7 +229,7 @@ function App() {
                   <div>
                     <strong>{alert.message}</strong>
                     <p>
-                      Current: {alert.value}% · Threshold:{" "}
+                      Current: {alert.value}% Â· Threshold:{" "}
                       {alert.threshold}%
                     </p>
                   </div>
