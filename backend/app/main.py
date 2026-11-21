@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.alerts import get_alerts
 from app.history import (
@@ -15,6 +16,14 @@ app = FastAPI(
     title="SysWatch API",
     description="System monitoring API for SysWatch",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 

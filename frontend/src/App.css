@@ -316,3 +316,18 @@ td {
     flex-direction: column;
   }
 }
+
+.error-message {
+  margin-bottom: 18px;
+  padding: 13px 16px;
+  background: #2b1919;
+  border: 1px solid #552929;
+  border-radius: 10px;
+  color: #ff9d9d;
+  font-size: 13px;
+}
+
+.empty-message {
+  color: #778296;
+  font-size: 13px;
+}

@@ -1,21 +1,27 @@
+import { useCallback, useEffect, useState } from "react";
 import "./App.css";
 
-const metrics = [
-  { label: "CPU Usage", value: "32%", percent: 32 },
-  { label: "Memory Usage", value: "68%", percent: 68 },
-  { label: "Disk Usage", value: "74%", percent: 74 },
-  { label: "System Uptime", value: "4d 8h", percent: null },
-];
+const API_URL = "http://127.0.0.1:8000/api";
 
-const processes = [
-  { pid: 8576, name: "chrome.exe", cpu: 18.4, memory: 3.5 },
-  { pid: 24004, name: "Code.exe", cpu: 8.1, memory: 2.8 },
-  { pid: 22324, name: "system.exe", cpu: 5.6, memory: 2.3 },
-  { pid: 47420, name: "chrome.exe", cpu: 4.2, memory: 2.1 },
-  { pid: 18240, name: "explorer.exe", cpu: 1.8, memory: 1.4 },
-];
+function formatUptime(seconds) {
+  if (seconds === undefined || seconds === null) {
+    return "--";
+  }
 
-const history = [28, 42, 35, 58, 46, 61, 49, 72, 54, 63, 45, 32];
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (days > 0) {
+    return `${days}d ${hours}h`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  return `${minutes}m`;
+}
 
 function MetricCard({ label, value, percent }) {
   return (
@@ -23,11 +29,11 @@ function MetricCard({ label, value, percent }) {
       <div className="metric-label">{label}</div>
       <div className="metric-value">{value}</div>
 
-      {percent !== null && (
+      {percent !== null && percent !== undefined && (
         <div className="progress-track">
           <div
             className="progress-fill"
-            style={{ width: `${percent}%` }}
+            style={{ width: `${Math.min(percent, 100)}%` }}
           />
         </div>
       )}
@@ -36,6 +42,90 @@ function MetricCard({ label, value, percent }) {
 }
 
 function App() {
+  const [system, setSystem] = useState(null);
+  const [processes, setProcesses] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+  const [error, setError] = useState("");
+  const [lastUpdated, setLastUpdated] = useState(null);
+
+  const loadData = useCallback(async () => {
+    try {
+      const [
+        systemResponse,
+        processResponse,
+        historyResponse,
+        alertResponse,
+      ] = await Promise.all([
+        fetch(`${API_URL}/system`),
+        fetch(`${API_URL}/processes?limit=8`),
+        fetch(`${API_URL}/history?limit=20`),
+        fetch(`${API_URL}/alerts`),
+      ]);
+
+      if (
+        !systemResponse.ok ||
+        !processResponse.ok ||
+        !historyResponse.ok ||
+        !alertResponse.ok
+      ) {
+        throw new Error("Unable to load system data");
+      }
+
+      const systemData = await systemResponse.json();
+      const processData = await processResponse.json();
+      const historyData = await historyResponse.json();
+      const alertData = await alertResponse.json();
+
+      setSystem(systemData);
+      setProcesses(processData);
+      setHistory(historyData);
+      setAlerts(alertData.alerts);
+      setError("");
+      setLastUpdated(new Date());
+    } catch {
+      setError("Unable to connect to the SysWatch backend.");
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+
+    const interval = setInterval(loadData, 5000);
+
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  const metrics = system
+    ? [
+        {
+          label: "CPU Usage",
+          value: `${system.cpu_percent}%`,
+          percent: system.cpu_percent,
+        },
+        {
+          label: "Memory Usage",
+          value: `${system.memory_percent}%`,
+          percent: system.memory_percent,
+        },
+        {
+          label: "Disk Usage",
+          value: `${system.disk_percent}%`,
+          percent: system.disk_percent,
+        },
+        {
+          label: "System Uptime",
+          value: formatUptime(system.uptime_seconds),
+          percent: null,
+        },
+      ]
+    : [
+        { label: "CPU Usage", value: "--", percent: 0 },
+        { label: "Memory Usage", value: "--", percent: 0 },
+        { label: "Disk Usage", value: "--", percent: 0 },
+        { label: "System Uptime", value: "--", percent: null },
+      ];
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -73,6 +163,8 @@ function App() {
           </div>
         </header>
 
+        {error && <div className="error-message">{error}</div>}
+
         <section className="metric-grid">
           {metrics.map((metric) => (
             <MetricCard key={metric.label} {...metric} />
@@ -86,18 +178,31 @@ function App() {
                 <p className="panel-label">PERFORMANCE</p>
                 <h2>CPU History</h2>
               </div>
-              <span className="muted">Recent activity</span>
+
+              <span className="muted">
+                {lastUpdated
+                  ? `Updated ${lastUpdated.toLocaleTimeString()}`
+                  : "Loading..."}
+              </span>
             </div>
 
             <div className="chart">
-              {history.map((value, index) => (
-                <div
-                  key={index}
-                  className="chart-bar"
-                  style={{ height: `${value}%` }}
-                  title={`${value}%`}
-                />
-              ))}
+              {history.length > 0 ? (
+                history.map((record, index) => (
+                  <div
+                    key={`${record.timestamp}-${index}`}
+                    className="chart-bar"
+                    style={{
+                      height: `${Math.max(record.cpu_percent, 3)}%`,
+                    }}
+                    title={`${record.cpu_percent}%`}
+                  />
+                ))
+              ) : (
+                <p className="empty-message">
+                  Waiting for metric history...
+                </p>
+              )}
             </div>
           </div>
 
@@ -107,24 +212,34 @@ function App() {
                 <p className="panel-label">HEALTH</p>
                 <h2>Active Alerts</h2>
               </div>
-              <span className="alert-count">2</span>
+
+              <span className="alert-count">
+                {alerts.length}
+              </span>
             </div>
 
-            <div className="alert warning">
-              <div>
-                <strong>Memory usage is high</strong>
-                <p>Current usage has passed 85%.</p>
-              </div>
-              <span>Warning</span>
-            </div>
+            {alerts.length > 0 ? (
+              alerts.map((alert) => (
+                <div
+                  className="alert warning"
+                  key={alert.metric}
+                >
+                  <div>
+                    <strong>{alert.message}</strong>
+                    <p>
+                      Current: {alert.value}% · Threshold:{" "}
+                      {alert.threshold}%
+                    </p>
+                  </div>
 
-            <div className="alert warning">
-              <div>
-                <strong>Disk space is running low</strong>
-                <p>Disk usage has passed 90%.</p>
-              </div>
-              <span>Warning</span>
-            </div>
+                  <span>Warning</span>
+                </div>
+              ))
+            ) : (
+              <p className="empty-message">
+                No active alerts. System health looks good.
+              </p>
+            )}
           </div>
         </section>
 
@@ -134,7 +249,10 @@ function App() {
               <p className="panel-label">PROCESSES</p>
               <h2>Top Processes</h2>
             </div>
-            <span className="muted">Sorted by resource usage</span>
+
+            <span className="muted">
+              Highest memory usage
+            </span>
           </div>
 
           <div className="table-wrapper">
@@ -151,10 +269,12 @@ function App() {
               <tbody>
                 {processes.map((process) => (
                   <tr key={process.pid}>
-                    <td className="process-name">{process.name}</td>
+                    <td className="process-name">
+                      {process.name}
+                    </td>
                     <td>{process.pid}</td>
-                    <td>{process.cpu}%</td>
-                    <td>{process.memory}%</td>
+                    <td>{process.cpu_percent}%</td>
+                    <td>{process.memory_percent}%</td>
                   </tr>
                 ))}
               </tbody>
